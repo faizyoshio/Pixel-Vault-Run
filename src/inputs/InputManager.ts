@@ -23,26 +23,30 @@ export class InputManager {
     mouseDown: false,
   };
 
-  private boundKeyDown: (e: KeyboardEvent) => void;
-  private boundKeyUp: (e: KeyboardEvent) => void;
-  private boundMouseMove: (e: MouseEvent) => void;
-  private boundMouseDown: (e: MouseEvent) => void;
-  private boundMouseUp: (e: MouseEvent) => void;
+  private boundKeyDown: ((e: KeyboardEvent) => void) | null = null;
+  private boundKeyUp: ((e: KeyboardEvent) => void) | null = null;
+  private boundMouseMove: ((e: MouseEvent) => void) | null = null;
+  private boundMouseDown: ((e: MouseEvent) => void) | null = null;
+  private boundMouseUp: ((e: MouseEvent) => void) | null = null;
 
   constructor() {
-    this.boundKeyDown = this.handleKeyDown.bind(this);
-    this.boundKeyUp = this.handleKeyUp.bind(this);
-    this.boundMouseMove = this.handleMouseMove.bind(this);
-    this.boundMouseDown = this.handleMouseDown.bind(this);
-    this.boundMouseUp = this.handleMouseUp.bind(this);
+    if (typeof window !== 'undefined') {
+      this.boundKeyDown = this.handleKeyDown.bind(this);
+      this.boundKeyUp = this.handleKeyUp.bind(this);
+      this.boundMouseMove = this.handleMouseMove.bind(this);
+      this.boundMouseDown = this.handleMouseDown.bind(this);
+      this.boundMouseUp = this.handleMouseUp.bind(this);
+    }
   }
 
   setup(): void {
-    window.addEventListener('keydown', this.boundKeyDown);
-    window.addEventListener('keyup', this.boundKeyUp);
-    window.addEventListener('mousemove', this.boundMouseMove);
-    window.addEventListener('mousedown', this.boundMouseDown);
-    window.addEventListener('mouseup', this.boundMouseUp);
+    if (typeof window === 'undefined') return;
+    
+    window.addEventListener('keydown', this.boundKeyDown!);
+    window.addEventListener('keyup', this.boundKeyUp!);
+    window.addEventListener('mousemove', this.boundMouseMove!);
+    window.addEventListener('mousedown', this.boundMouseDown!);
+    window.addEventListener('mouseup', this.boundMouseUp!);
   }
 
   private handleKeyDown(e: KeyboardEvent): void {
@@ -120,12 +124,18 @@ export class InputManager {
     return { ...this.state };
   }
 
+  update(): void {
+    // Input state is event-driven; nothing to poll each frame
+  }
+
   dispose(): void {
-    window.removeEventListener('keydown', this.boundKeyDown);
-    window.removeEventListener('keyup', this.boundKeyUp);
-    window.removeEventListener('mousemove', this.boundMouseMove);
-    window.removeEventListener('mousedown', this.boundMouseDown);
-    window.removeEventListener('mouseup', this.boundMouseUp);
+    if (typeof window === 'undefined') return;
+    
+    window.removeEventListener('keydown', this.boundKeyDown!);
+    window.removeEventListener('keyup', this.boundKeyUp!);
+    window.removeEventListener('mousemove', this.boundMouseMove!);
+    window.removeEventListener('mousedown', this.boundMouseDown!);
+    window.removeEventListener('mouseup', this.boundMouseUp!);
   }
 }
 

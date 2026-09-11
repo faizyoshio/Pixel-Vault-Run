@@ -46,6 +46,14 @@ export class GameController {
         return this.gameState.currentLevel;
     }
     
+    stop(): void {
+        this.gameLoop.stop();
+    }
+    
+    getFPS(): number {
+        return this.gameLoop.getFPS();
+    }
+    
     private update(deltaTime: number): void {
         this.sceneManager.update(deltaTime);
         this.inputManager.update();

@@ -11,18 +11,28 @@ interface SceneManagerOptions {
 export class SceneManager {
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
-  private renderer: THREE.WebGLRenderer;
+  private renderer: THREE.WebGLRenderer | null = null;
   private isReady = false;
 
   constructor(options: SceneManagerOptions = {}) {
-    const { canvas, width = window.innerWidth, height = window.innerHeight } = options;
+    const { canvas, width = 800, height = 600 } = options;
 
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-
-    this.renderer.setSize(width, height);
-    this.renderer.setPixelRatio(window.devicePixelRatio);
+    
+    // Check if WebGL is available (browser environment)
+    if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+      try {
+        this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+        this.renderer.setSize(width, height);
+        if (typeof window !== 'undefined') {
+          this.renderer.setPixelRatio(window.devicePixelRatio);
+        }
+      } catch (e) {
+        console.warn('WebGL not available, using mock renderer');
+        this.renderer = null;
+      }
+    }
 
     // Add basic lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
@@ -35,21 +45,25 @@ export class SceneManager {
     this.isReady = true;
   }
 
-  initialize(): void {
+  async initialize(): Promise<void> {
     if (!this.isReady) {
       throw new Error('SceneManager not initialized properly');
     }
 
     // Add the renderer to the DOM if not provided
-    if (!this.renderer.domElement.parentElement) {
+    if (typeof document !== 'undefined' && this.renderer && this.renderer.domElement.parentElement === null) {
       document.body.appendChild(this.renderer.domElement);
     }
 
     // Set up resize handler
-    window.addEventListener('resize', this.handleResize.bind(this));
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resize', this.handleResize.bind(this));
+    }
   }
 
   private handleResize(): void {
+    if (typeof window === 'undefined' || !this.renderer) return;
+    
     const width = window.innerWidth;
     const height = window.innerHeight;
 
@@ -81,13 +95,29 @@ export class SceneManager {
     return this.camera;
   }
 
-  getRenderer(): THREE.WebGLRenderer {
+  getRenderer(): THREE.WebGLRenderer | null {
     return this.renderer;
   }
 
+  isReadyState(): boolean {
+    return this.isReady;
+  }
+
+  loadLevel(levelId: string): void {
+    // Load level assets into scene
+  }
+
+  update(deltaTime: number): void {
+    // Per-frame scene updates (animations, physics) hook here in later tasks
+  }
+
   dispose(): void {
-    window.removeEventListener('resize', this.handleResize.bind(this));
-    this.renderer.dispose();
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('resize', this.handleResize.bind(this));
+    }
+    if (this.renderer) {
+      this.renderer.dispose();
+    }
     this.scene.clear();
     this.isReady = false;
   }

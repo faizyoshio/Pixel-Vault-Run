@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from 'vitest';
+import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import { GameController } from '../../src/game/GameController';
 
 describe('Game Integration', () => {
@@ -6,6 +6,10 @@ describe('Game Integration', () => {
     
     beforeEach(() => {
         game = new GameController();
+    });
+
+    afterEach(() => {
+        game.stop();
     });
     
     test('Game initialization', async () => {
