@@ -9,7 +9,12 @@ describe('PuzzleProgress', () => {
     expect(progress.canExit()).toBe(false);
     progress.collectKey();
     expect(progress.canExit()).toBe(true);
-    progress.win();
+    progress.enterPortal(); // win via portal (portal open requires plate, so no win here)
+    expect(new PuzzleProgress().won).toBe(false);
+    // win directly via goToPlateRoom + activatePlate + enterPortal
+    progress.goToPlateRoom();
+    progress.activatePlate();
+    progress.enterPortal();
     expect(new PuzzleProgress().won).toBe(true);
   });
 });
