@@ -11,10 +11,12 @@ describe('PuzzleProgress', () => {
     expect(progress.canExit()).toBe(true);
     progress.enterPortal(); // win via portal (portal open requires plate, so no win here)
     expect(new PuzzleProgress().won).toBe(false);
-    // win directly via goToPlateRoom + activatePlate + enterPortal
+    // portal leads to the laser room; the final exit requires target power
     progress.goToPlateRoom();
     progress.activatePlate();
-    progress.enterPortal();
+    progress.goToLaserRoom();
+    progress.hitTarget();
+    progress.useFinalExit();
     expect(new PuzzleProgress().won).toBe(true);
   });
 });
