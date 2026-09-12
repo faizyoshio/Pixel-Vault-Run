@@ -3,17 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Escape Puzzle</title>
+    <title>Mario-Style Platformer</title>
     <style>
-      * { box-sizing: border-box; } body { margin: 0; overflow: hidden; background: #101723; color: #e9edf6; font: 14px ui-monospace, monospace; }
-      #hud, #message { position: fixed; z-index: 1; padding: 14px; text-shadow: 0 1px 3px #000; pointer-events: none; transition: background-color 0.15s ease; }
-      .game-flash { border-radius: 6px; box-shadow: 0 0 12px currentColor; }
-      #hud { top: 0; left: 0; } #message { bottom: 0; left: 0; color: #c7d2e5; }
-      canvas { display: block; }
+      * { box-sizing: border-box; }
+      body { margin: 0; overflow: hidden; background: #1a1a2e; color: #e9edf6; font: 14px ui-monospace, monospace; }
+      #hud { position: fixed; top: 8px; left: 8px; z-index: 10; padding: 8px 12px; background: rgba(0,0,0,0.6); border-radius: 4px; font-family: monospace; font-size: 14px; pointer-events: none; }
+      canvas { display: block; margin: 0 auto; }
     </style>
   </head>
   <body>
-    <div id="game-container"></div><div id="hud"></div><div id="message"></div>
+    <div id="game-container"></div>
+    <div id="hud"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

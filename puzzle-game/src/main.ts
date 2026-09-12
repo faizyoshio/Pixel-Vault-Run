@@ -1,146 +1,402 @@
-import * as THREE from 'three';
-import { PuzzleProgress } from './game/PuzzleProgress';
-import { traceLaser } from './game/laserPath';
-import { Sfx } from './audio/sfx';
-import { flash } from './ui/feedback';
+import {
+  createPlayer,
+  parseLevel,
+  aabbOverlap,
+  isSolidTile,
+  updatePlayerHorizontal,
+  updateGravity,
+  tryJump,
+  bufferJump,
+  updateCoyoteAndJumpBuffer,
+  applyJumpBuffer,
+  resolveXCollision,
+  resolveYCollision,
+  updateEnemy,
+  isStomp,
+  stompEnemy,
+  checkEnemySideContact,
+  collectCoin,
+  checkLevelWin,
+  killPlayer,
+  findPlayerStart,
+  findCoins,
+  findEnemies,
+  createDefaultLevels,
+  Player,
+  Enemy,
+  Coin,
+  Level,
+  TILE_W,
+  TILE_H,
+} from './game/engine';
 
-const sfx = new Sfx();
-const progress = new PuzzleProgress();
-const hud = document.querySelector<HTMLElement>('#hud')!;
-const message = document.querySelector<HTMLElement>('#message')!;
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(devicePixelRatio); renderer.setSize(innerWidth, innerHeight);
-document.querySelector('#game-container')!.append(renderer.domElement);
+const CANVAS_W = 320;
+const CANVAS_H = 240;
+const SCALE = 3;
 
-const scene = new THREE.Scene(); scene.background = new THREE.Color(0x101723);
-const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.1, 100);
-camera.position.set(0, 1.65, 6);
-scene.add(new THREE.HemisphereLight(0xaac8ff, 0x1b1720, 2));
-const lamp = new THREE.PointLight(0xffd9a0, 25, 20); lamp.position.set(0, 4, 1); scene.add(lamp);
+const canvas = document.createElement('canvas');
+canvas.width = CANVAS_W;
+canvas.height = CANVAS_H;
+canvas.style.width = `${CANVAS_W * SCALE}px`;
+canvas.style.height = `${CANVAS_H * SCALE}px`;
+canvas.style.imageRendering = 'pixelated';
+canvas.style.display = 'block';
+canvas.style.margin = '0 auto';
+document.getElementById('game-container')?.appendChild(canvas);
+const ctx = canvas.getContext('2d')!;
 
-const material = (color: number, emissive = 0) => new THREE.MeshStandardMaterial({ color, emissive, roughness: .75 });
-const box = (size: THREE.Vector3, position: THREE.Vector3, color: number) => {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), material(color));
-  mesh.position.copy(position); scene.add(mesh); return mesh;
+const hud = document.getElementById('hud')!;
+const message = document.getElementById('message')!;
+
+let levels = createDefaultLevels();
+let levelIndex = 0;
+let level = levels[levelIndex];
+
+let player = createPlayer(0, 0);
+let enemies: Enemy[] = [];
+let coins: Coin[] = [];
+
+let state: 'playing' | 'dead' | 'gameover' | 'win' | 'level-transition' = 'playing';
+let levelTransitionTimer = 0;
+
+const keys = { left: false, right: false, jump: false, jumpHeld: false, restart: false };
+const keysPressed = new Set<string>();
+
+function resetLevel(resetLives = false) {
+  level = levels[levelIndex];
+  const start = findPlayerStart(level);
+  player = createPlayer(start.x, start.y);
+  if (resetLives) {
+    player.lives = 3;
+    player.score = 0;
+  }
+  enemies = findEnemies(level);
+  coins = findCoins(level);
+  state = 'playing';
+}
+
+function initAudio() {
+  const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+  return ctx;
+}
+
+let audioCtx: AudioContext | null = null;
+const audioUnlocked = () => {
+  if (audioCtx) return;
+  audioCtx = initAudio();
+  document.removeEventListener('click', audioUnlocked);
+  document.removeEventListener('keydown', audioUnlocked);
 };
-const room = (x: number, z: number) => {
-  box(new THREE.Vector3(12, .2, 12), new THREE.Vector3(x, 0, z), 0x303846);
-  box(new THREE.Vector3(12, 5, .2), new THREE.Vector3(x, 2.5, z - 6), 0x273246);
-  box(new THREE.Vector3(.2, 5, 12), new THREE.Vector3(x - 6, 2.5, z), 0x273246);
-  box(new THREE.Vector3(.2, 5, 12), new THREE.Vector3(x + 6, 2.5, z), 0x273246);
-  box(new THREE.Vector3(12, .2, 12), new THREE.Vector3(x, 5, z), 0x1c2533);
-};
+document.addEventListener('click', audioUnlocked);
+document.addEventListener('keydown', audioUnlocked);
 
-// Room 1: key-room. Room 2: plate-room. Room 3: laser-room.
-room(0, 0); room(14, -6); room(26, -6);
-const key = new THREE.Mesh(new THREE.TorusGeometry(.23, .07, 10, 24), material(0xffcc33));
-key.position.set(-2, 1.25, -1); key.rotation.x = Math.PI / 2; scene.add(key);
-const exit = new THREE.Mesh(new THREE.BoxGeometry(1.6, 3, .25), material(0x90333b)); exit.position.set(0, 1.5, -5.82); scene.add(exit);
-const plate = new THREE.Mesh(new THREE.CylinderGeometry(.5, .6, .12, 16), material(0x7a5a1a)); plate.position.set(14, .06, -6); scene.add(plate);
-const plateRing = new THREE.Mesh(new THREE.TorusGeometry(.62, .05, 16, 24), material(0xffcc33)); plateRing.position.set(14, .12, -6); plateRing.rotation.x = Math.PI / 2; scene.add(plateRing);
-const portal = new THREE.Mesh(new THREE.BoxGeometry(2, 3.2, .2), material(0x4dbd75, 0x164d30)); portal.position.set(14, 1.6, -11.8); portal.visible = false; scene.add(portal);
+function playTone(freq: number, duration: number, type: OscillatorType = 'square', volume = 0.15) {
+  if (!audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.value = freq;
+  gain.gain.value = volume;
+  osc.connect(gain).connect(audioCtx.destination);
+  osc.start();
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+  osc.stop(audioCtx.currentTime + duration);
+}
 
-// Laser-room: broad mirror panels give stable 90-degree reflections.
-const emitter = new THREE.Mesh(new THREE.CylinderGeometry(.28, .28, 1.2, 16), material(0xff3344, 0x661111)); emitter.position.set(23, .6, -6); emitter.rotation.x = Math.PI / 2; scene.add(emitter);
-const makeMirror = (x: number, z: number) => {
-  const pivot = new THREE.Group(); pivot.position.set(x, 1.1, z);
-  const panel = new THREE.Mesh(new THREE.BoxGeometry(.14, 1.8, 2), material(0xc8e4ff, 0x153050)); pivot.add(panel); scene.add(pivot); return pivot;
-};
-const mirror1 = makeMirror(26, -6); const mirror2 = makeMirror(26, -9);
-const target = new THREE.Mesh(new THREE.SphereGeometry(.45, 20, 12), material(0x7d2630, 0x26080a)); target.position.set(29, 1.1, -9); scene.add(target);
-const finalExit = new THREE.Mesh(new THREE.BoxGeometry(1.6, 3, .25), material(0x542934)); finalExit.position.set(31.82, 1.5, -9); scene.add(finalExit);
-const beam = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xff3344 })); scene.add(beam);
+function sfxJump() { playTone(440, 0.12, 'square', 0.12); }
+function sfxCoin() { playTone(880, 0.08, 'sine', 0.1); }
+function sfxStomp() { playTone(220, 0.1, 'square', 0.15); }
+function sfxHurt() { playTone(150, 0.2, 'sawtooth', 0.15); }
+function sfxWin() {
+  playTone(523, 0.15, 'sine', 0.1);
+  setTimeout(() => playTone(659, 0.15, 'sine', 0.1), 100);
+  setTimeout(() => playTone(784, 0.2, 'sine', 0.1), 200);
+  setTimeout(() => playTone(1047, 0.3, 'sine', 0.1), 300);
+}
 
-const raycaster = new THREE.Raycaster(); const keys = new Set<string>();
-let yaw = 0, pitch = 0, last = performance.now(), notice = '', won = progress.won;
-function syncLaser() {
-  mirror1.rotation.y = THREE.MathUtils.degToRad(progress.mirror1Angle);
-  mirror2.rotation.y = THREE.MathUtils.degToRad(progress.mirror2Angle);
-  const path = traceLaser(progress.mirror1Angle, progress.mirror2Angle);
-  beam.geometry.setFromPoints(path.points.map(point => new THREE.Vector3(point.x, 1.1, point.z)));
-  const wasHit = progress.targetHit;
-  if (path.targetHit) {
-    progress.hitTarget();
-    if (!wasHit) {
-      sfx.play('target');
-      flash(hud, '#40e878');
+window.addEventListener('keydown', (e) => {
+  keysPressed.add(e.code);
+  if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
+  if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
+  if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'KeyZ') {
+    keys.jump = true;
+    keys.jumpHeld = true;
+    bufferJump(player);
+  }
+  if (e.code === 'KeyR') keys.restart = true;
+  e.preventDefault();
+});
+
+window.addEventListener('keyup', (e) => {
+  keysPressed.delete(e.code);
+  if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
+  if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
+  if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'KeyZ') {
+    keys.jump = false;
+    keys.jumpHeld = false;
+    player.isJumping = false;
+  }
+  if (e.code === 'KeyR') keys.restart = false;
+});
+
+function updateHUD() {
+  hud.innerHTML = `LIVES: ${player.lives}  SCORE: ${player.score}  LEVEL: ${levelIndex + 1}`;
+}
+
+function drawRect(x: number, y: number, w: number, h: number, color: string) {
+  ctx.fillStyle = color;
+  ctx.fillRect(x, y, w, h);
+}
+
+function drawOutlineRect(x: number, y: number, w: number, h: number, color: string, outline = '#000') {
+  ctx.fillStyle = color;
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = outline;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+}
+
+function drawTile(x: number, y: number, ch: string) {
+  const tx = x * TILE_W;
+  const ty = y * TILE_H;
+  switch (ch) {
+    case '#':
+    case 'B':
+    case '?':
+    case 'D':
+      drawOutlineRect(tx, ty, TILE_W, TILE_H, '#8b6e4e', '#5d4a37');
+      // Pattern
+      ctx.fillStyle = '#a8845a';
+      ctx.fillRect(tx + 2, ty + 2, TILE_W - 4, TILE_H - 4);
+      ctx.strokeStyle = '#000';
+      ctx.strokeRect(tx + 2.5, ty + 2.5, TILE_W - 5, TILE_H - 5);
+      break;
+    case 'F':
+      // Flag pole
+      ctx.fillStyle = '#666';
+      ctx.fillRect(tx + 6, ty, 4, TILE_H * 2);
+      // Flag
+      ctx.fillStyle = '#e00';
+      ctx.beginPath();
+      ctx.moveTo(tx + 10, ty);
+      ctx.lineTo(tx + 20, ty + 6);
+      ctx.lineTo(tx + 10, ty + 12);
+      ctx.fill();
+      ctx.strokeStyle = '#000';
+      ctx.stroke();
+      break;
+  }
+}
+
+function drawPlayer() {
+  if (player.dead && state !== 'dead') return;
+  const x = player.pos.x;
+  const y = player.pos.y;
+  const w = player.width;
+  const h = player.height;
+  // Body
+  drawOutlineRect(x, y + 4, w, h - 4, '#ff6b6b', '#8b0000');
+  // Head
+  drawOutlineRect(x + 2, y, w - 4, 6, '#ffe0b2', '#000');
+  // Eyes
+  ctx.fillStyle = '#000';
+  const eyeX = player.facingRight ? x + 8 : x + 4;
+  ctx.fillRect(eyeX, y + 2, 2, 2);
+  // Buttons
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(x + 3, y + 8, 2, 2);
+  ctx.fillRect(x + 7, y + 8, 2, 2);
+}
+
+function drawEnemy(enemy: Enemy) {
+  if (enemy.dead) return;
+  const x = enemy.pos.x;
+  const y = enemy.pos.y;
+  const w = enemy.width;
+  const h = enemy.height;
+  // Body
+  drawOutlineRect(x, y + 2, w, h - 2, '#4ecdc4', '#006d68');
+  // Feet
+  drawOutlineRect(x + 2, y + h - 2, 4, 2, '#006d68', '#000');
+  drawOutlineRect(x + 8, y + h - 2, 4, 2, '#006d68', '#000');
+  // Eyes
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(x + 3, y + 3, 3, 3);
+  ctx.fillRect(x + 8, y + 3, 3, 3);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(x + 4, y + 4, 1, 1);
+  ctx.fillRect(x + 9, y + 4, 1, 1);
+}
+
+function drawCoin(coin: Coin) {
+  if (coin.collected) return;
+  const x = coin.pos.x + coin.width / 2;
+  const y = coin.pos.y + coin.height / 2;
+  const r = 5;
+  // Spin animation
+  const t = Date.now() / 200;
+  const scale = Math.abs(Math.sin(t));
+  ctx.fillStyle = '#ffd700';
+  ctx.beginPath();
+  ctx.ellipse(x, y, r * scale, r, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#b8860b';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(x - 1, y - 1, 1, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawLevel() {
+  for (let y = 0; y < level.height; y++) {
+    for (let x = 0; x < level.width; x++) {
+      const ch = level.map[y]?.[x];
+      if (ch && ch !== ' ' && ch !== 'P' && ch !== 'C' && ch !== 'E') {
+        drawTile(x, y, ch);
+      }
     }
   }
-  (target.material as THREE.MeshStandardMaterial).color.set(progress.targetHit ? 0x40e878 : 0x7d2630);
-  (target.material as THREE.MeshStandardMaterial).emissive.set(progress.targetHit ? 0x147a32 : 0x26080a);
-  (finalExit.material as THREE.MeshStandardMaterial).color.set(progress.targetHit ? 0x40a86a : 0x542934);
+  coins.forEach(drawCoin);
+  enemies.forEach(drawEnemy);
+  drawPlayer();
 }
-function updateHud() {
-  hud.textContent = won ? 'ESCAPED — Progress saved' : `KEY: ${progress.hasKey ? 'FOUND' : 'MISSING'}   ROOM: ${progress.currentRoom}   LASER: ${progress.targetHit ? 'TARGET ACTIVE' : 'ALIGN MIRRORS'}`;
-  message.textContent = notice || (document.pointerLockElement ? 'WASD move · click / E interact · mirrors rotate 90°' : 'Click to begin');
+
+function update() {
+  if (state === 'playing') {
+    if (keys.restart) {
+      resetLevel(true);
+      return;
+    }
+
+    updatePlayerHorizontal(player, keys.left, keys.right);
+    updateGravity(player, keys.jumpHeld);
+    applyJumpBuffer(player);
+    updateCoyoteAndJumpBuffer(player);
+
+    player.pos.x += player.vel.x;
+    resolveXCollision(player, level);
+    player.pos.y += player.vel.y;
+    resolveYCollision(player, level);
+
+    enemies.forEach(e => updateEnemy(e, level));
+
+    // Stomp / side contact
+    for (const enemy of enemies) {
+      if (enemy.dead) continue;
+      if (isStomp(player, enemy)) {
+        stompEnemy(player, enemy);
+        sfxStomp();
+      } else if (checkEnemySideContact(player, enemy)) {
+        killPlayer(player);
+        sfxHurt();
+        state = 'dead';
+      }
+    }
+
+    // Coins
+    for (const coin of coins) {
+      if (!coin.collected && collectCoin(player, coin)) {
+        sfxCoin();
+      }
+    }
+
+    // Level win
+    if (checkLevelWin(player, level)) {
+      state = 'level-transition';
+      levelTransitionTimer = 60;
+      sfxWin();
+    }
+
+    // Fall death
+    if (player.pos.y > level.height * TILE_H + 50) {
+      killPlayer(player);
+      sfxHurt();
+      state = 'dead';
+    }
+  } else if (state === 'dead') {
+    if (player.lives <= 0) {
+      state = 'gameover';
+    } else {
+      state = 'level-transition';
+      levelTransitionTimer = 60;
+    }
+  } else if (state === 'level-transition') {
+    levelTransitionTimer--;
+    if (levelTransitionTimer <= 0) {
+      if (state === 'level-transition' && levelIndex < levels.length - 1 && checkLevelWin(player, level)) {
+        levelIndex++;
+        resetLevel(false);
+      } else {
+        resetLevel(false);
+      }
+    }
+  } else if (state === 'gameover' || state === 'win') {
+    if (keys.restart) {
+      levelIndex = 0;
+      resetLevel(true);
+    }
+  }
+
+  updateHUD();
 }
-function enterLaserRoom() { progress.goToLaserRoom(); camera.position.set(23, 1.65, -3); notice = 'Laser room: rotate mirrors to guide the beam.'; syncLaser(); }
-function interact() {
-  raycaster.setFromCamera(new THREE.Vector2(), camera);
-  const hit = raycaster.intersectObjects([key, exit, plate, portal, mirror1, mirror2, finalExit], true)[0]?.object;
-  if (hit === key && !progress.hasKey) {
-    progress.collectKey();
-    scene.remove(key);
-    notice = 'Key collected. Find the exit.';
-    sfx.play('key');
-    flash(hud, '#ffcc33');
+
+function render() {
+  ctx.fillStyle = '#5c94fc';
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+  // Background hills
+  ctx.fillStyle = '#8fc93a';
+  for (let i = 0; i < 4; i++) {
+    const x = (i * 100 - Date.now() / 100) % 400;
+    ctx.beginPath();
+    ctx.ellipse(x, 200, 80, 40, 0, 0, Math.PI * 2);
+    ctx.fill();
   }
-  else if (hit === exit) { if (progress.canExit()) { progress.goToPlateRoom(); exit.material = material(0x4dbd75); notice = 'Exit unlocked. Cross to the next room.'; } else notice = 'The exit needs a key.'; }
-  else if (hit === plate && !progress.plateActivated) {
-    progress.activatePlate();
-    notice = 'The pressure plate activates the portal.';
-    sfx.play('plate');
-    flash(hud, '#7a5a1a');
+
+  drawLevel();
+
+  if (state === 'dead') {
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 16px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('YOU DIED', CANVAS_W / 2, CANVAS_H / 2 - 10);
+    ctx.font = '12px monospace';
+    ctx.fillText(`LIVES LEFT: ${player.lives}`, CANVAS_W / 2, CANVAS_H / 2 + 10);
+    ctx.fillText('Press R to continue', CANVAS_W / 2, CANVAS_H / 2 + 26);
+  } else if (state === 'gameover') {
+    ctx.fillStyle = 'rgba(0,0,0,0.8)';
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    ctx.fillStyle = '#ff4444';
+    ctx.font = 'bold 20px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('GAME OVER', CANVAS_W / 2, CANVAS_H / 2 - 15);
+    ctx.fillStyle = '#fff';
+    ctx.font = '12px monospace';
+    ctx.fillText(`FINAL SCORE: ${player.score}`, CANVAS_W / 2, CANVAS_H / 2 + 10);
+    ctx.fillText('Press R to restart', CANVAS_W / 2, CANVAS_H / 2 + 26);
+  } else if (state === 'win') {
+    ctx.fillStyle = 'rgba(0,0,0,0.8)';
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 20px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('YOU WIN!', CANVAS_W / 2, CANVAS_H / 2 - 15);
+    ctx.fillStyle = '#fff';
+    ctx.font = '12px monospace';
+    ctx.fillText(`FINAL SCORE: ${player.score}`, CANVAS_W / 2, CANVAS_H / 2 + 10);
+    ctx.fillText('Press R to restart', CANVAS_W / 2, CANVAS_H / 2 + 26);
   }
-  else if (hit === portal && progress.portalOpen) enterLaserRoom();
-  else if (hit && (hit === mirror1.children[0] || hit.parent === mirror1)) {
-    progress.rotateMirror(1);
-    notice = 'Mirror rotated 90°.';
-    sfx.play('mirror');
-    flash(hud, '#c8e4ff');
-    syncLaser();
-  }
-  else if (hit && (hit === mirror2.children[0] || hit.parent === mirror2)) {
-    progress.rotateMirror(2);
-    notice = 'Mirror rotated 90°.';
-    sfx.play('mirror');
-    flash(hud, '#c8e4ff');
-    syncLaser();
-  }
-  else if (hit === finalExit) {
-    if (progress.canUseFinalExit()) {
-      progress.useFinalExit();
-      won = true;
-      notice = 'You escaped.';
-      sfx.play('win');
-      flash(hud, '#40a86a');
-    } else notice = 'The receptor needs laser power.';
-  }
-  updateHud();
 }
-function checkPlate() {
-  if (!progress.plateActivated && Math.hypot(camera.position.x - 14, camera.position.z + 6) < .7) {
-    progress.activatePlate();
-    sfx.play('plate');
-    flash(hud, '#7a5a1a');
-  }
+
+function loop() {
+  update();
+  render();
+  requestAnimationFrame(loop);
 }
-addEventListener('keydown', event => { keys.add(event.key.toLowerCase()); if (event.key.toLowerCase() === 'e') interact(); });
-addEventListener('keyup', event => keys.delete(event.key.toLowerCase()));
-renderer.domElement.addEventListener('click', () => {
-  sfx.unlock();
-  if (document.pointerLockElement !== renderer.domElement) renderer.domElement.requestPointerLock();
-  else interact();
-});
-addEventListener('mousemove', event => { if (document.pointerLockElement === renderer.domElement) { yaw -= event.movementX * .002; pitch = THREE.MathUtils.clamp(pitch - event.movementY * .002, -1.4, 1.4); } });
-addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
-if (progress.hasKey) scene.remove(key); if (progress.won) exit.material = material(0x4dbd75); if (progress.portalOpen) portal.visible = true;
-if (progress.currentRoom === 'laser-room') camera.position.set(23, 1.65, -3); syncLaser(); updateHud();
-function frame(now: number) {
-  const dt = Math.min((now - last) / 1000, .05); last = now;
-  const move = new THREE.Vector3((keys.has('d') ? 1 : 0) - (keys.has('a') ? 1 : 0), 0, (keys.has('s') ? 1 : 0) - (keys.has('w') ? 1 : 0));
-  if (move.lengthSq()) { move.normalize().applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw); camera.position.addScaledVector(move, 3 * dt); camera.position.x = THREE.MathUtils.clamp(camera.position.x, -5.3, 31.7); camera.position.z = THREE.MathUtils.clamp(camera.position.z, -11.3, -0.7); }
-  camera.rotation.set(pitch, yaw, 0, 'YXZ'); if (!progress.hasKey) { key.rotation.z += dt; key.position.y = 1.25 + Math.sin(now / 350) * .1; }
-  checkPlate(); if (progress.portalOpen) portal.visible = true; renderer.render(scene, camera); requestAnimationFrame(frame);
-}
-requestAnimationFrame(frame);
+
+resetLevel(true);
+loop();
