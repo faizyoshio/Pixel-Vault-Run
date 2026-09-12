@@ -16,8 +16,6 @@
     "three": "^0.158.0"
   },
   "devDependencies": {
-    "@testing-library/dom": "^7.0.0",
-    "@testing-library/jest-dom": "^7.0.0",
     "@types/node": "^20.0.0",
     "@types/three": "^0.158.0",
     "typescript": "^5.0.0",
