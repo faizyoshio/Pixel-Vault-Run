@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 import { PuzzleProgress } from './game/PuzzleProgress';
 import { traceLaser } from './game/laserPath';
+import { Sfx } from './audio/sfx';
+import { flash } from './ui/feedback';
 
+const sfx = new Sfx();
 const progress = new PuzzleProgress();
 const hud = document.querySelector<HTMLElement>('#hud')!;
 const message = document.querySelector<HTMLElement>('#message')!;
@@ -55,7 +58,14 @@ function syncLaser() {
   mirror2.rotation.y = THREE.MathUtils.degToRad(progress.mirror2Angle);
   const path = traceLaser(progress.mirror1Angle, progress.mirror2Angle);
   beam.geometry.setFromPoints(path.points.map(point => new THREE.Vector3(point.x, 1.1, point.z)));
-  if (path.targetHit) progress.hitTarget();
+  const wasHit = progress.targetHit;
+  if (path.targetHit) {
+    progress.hitTarget();
+    if (!wasHit) {
+      sfx.play('target');
+      flash(hud, '#40e878');
+    }
+  }
   (target.material as THREE.MeshStandardMaterial).color.set(progress.targetHit ? 0x40e878 : 0x7d2630);
   (target.material as THREE.MeshStandardMaterial).emissive.set(progress.targetHit ? 0x147a32 : 0x26080a);
   (finalExit.material as THREE.MeshStandardMaterial).color.set(progress.targetHit ? 0x40a86a : 0x542934);
@@ -68,19 +78,60 @@ function enterLaserRoom() { progress.goToLaserRoom(); camera.position.set(23, 1.
 function interact() {
   raycaster.setFromCamera(new THREE.Vector2(), camera);
   const hit = raycaster.intersectObjects([key, exit, plate, portal, mirror1, mirror2, finalExit], true)[0]?.object;
-  if (hit === key && !progress.hasKey) { progress.collectKey(); scene.remove(key); notice = 'Key collected. Find the exit.'; }
+  if (hit === key && !progress.hasKey) {
+    progress.collectKey();
+    scene.remove(key);
+    notice = 'Key collected. Find the exit.';
+    sfx.play('key');
+    flash(hud, '#ffcc33');
+  }
   else if (hit === exit) { if (progress.canExit()) { progress.goToPlateRoom(); exit.material = material(0x4dbd75); notice = 'Exit unlocked. Cross to the next room.'; } else notice = 'The exit needs a key.'; }
-  else if (hit === plate && !progress.plateActivated) { progress.activatePlate(); notice = 'The pressure plate activates the portal.'; }
+  else if (hit === plate && !progress.plateActivated) {
+    progress.activatePlate();
+    notice = 'The pressure plate activates the portal.';
+    sfx.play('plate');
+    flash(hud, '#7a5a1a');
+  }
   else if (hit === portal && progress.portalOpen) enterLaserRoom();
-  else if (hit && (hit === mirror1.children[0] || hit.parent === mirror1)) { progress.rotateMirror(1); notice = 'Mirror rotated 90°.'; syncLaser(); }
-  else if (hit && (hit === mirror2.children[0] || hit.parent === mirror2)) { progress.rotateMirror(2); notice = 'Mirror rotated 90°.'; syncLaser(); }
-  else if (hit === finalExit) { if (progress.canUseFinalExit()) { progress.useFinalExit(); won = true; notice = 'You escaped.'; } else notice = 'The receptor needs laser power.'; }
+  else if (hit && (hit === mirror1.children[0] || hit.parent === mirror1)) {
+    progress.rotateMirror(1);
+    notice = 'Mirror rotated 90°.';
+    sfx.play('mirror');
+    flash(hud, '#c8e4ff');
+    syncLaser();
+  }
+  else if (hit && (hit === mirror2.children[0] || hit.parent === mirror2)) {
+    progress.rotateMirror(2);
+    notice = 'Mirror rotated 90°.';
+    sfx.play('mirror');
+    flash(hud, '#c8e4ff');
+    syncLaser();
+  }
+  else if (hit === finalExit) {
+    if (progress.canUseFinalExit()) {
+      progress.useFinalExit();
+      won = true;
+      notice = 'You escaped.';
+      sfx.play('win');
+      flash(hud, '#40a86a');
+    } else notice = 'The receptor needs laser power.';
+  }
   updateHud();
 }
-function checkPlate() { if (!progress.plateActivated && Math.hypot(camera.position.x - 14, camera.position.z + 6) < .7) progress.activatePlate(); }
+function checkPlate() {
+  if (!progress.plateActivated && Math.hypot(camera.position.x - 14, camera.position.z + 6) < .7) {
+    progress.activatePlate();
+    sfx.play('plate');
+    flash(hud, '#7a5a1a');
+  }
+}
 addEventListener('keydown', event => { keys.add(event.key.toLowerCase()); if (event.key.toLowerCase() === 'e') interact(); });
 addEventListener('keyup', event => keys.delete(event.key.toLowerCase()));
-renderer.domElement.addEventListener('click', () => { if (document.pointerLockElement !== renderer.domElement) renderer.domElement.requestPointerLock(); else interact(); });
+renderer.domElement.addEventListener('click', () => {
+  sfx.unlock();
+  if (document.pointerLockElement !== renderer.domElement) renderer.domElement.requestPointerLock();
+  else interact();
+});
 addEventListener('mousemove', event => { if (document.pointerLockElement === renderer.domElement) { yaw -= event.movementX * .002; pitch = THREE.MathUtils.clamp(pitch - event.movementY * .002, -1.4, 1.4); } });
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
 if (progress.hasKey) scene.remove(key); if (progress.won) exit.material = material(0x4dbd75); if (progress.portalOpen) portal.visible = true;

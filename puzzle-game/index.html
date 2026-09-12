@@ -6,7 +6,8 @@
     <title>Key Room</title>
     <style>
       * { box-sizing: border-box; } body { margin: 0; overflow: hidden; background: #101723; color: #e9edf6; font: 14px ui-monospace, monospace; }
-      #hud, #message { position: fixed; z-index: 1; padding: 14px; text-shadow: 0 1px 3px #000; pointer-events: none; }
+      #hud, #message { position: fixed; z-index: 1; padding: 14px; text-shadow: 0 1px 3px #000; pointer-events: none; transition: background-color 0.15s ease; }
+      .game-flash { border-radius: 6px; box-shadow: 0 0 12px currentColor; }
       #hud { top: 0; left: 0; } #message { bottom: 0; left: 0; color: #c7d2e5; }
       canvas { display: block; }
     </style>
