@@ -1,19 +1,21 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Mario-Style Platformer</title>
-    <style>
-      * { box-sizing: border-box; }
-      body { margin: 0; overflow: hidden; background: #1a1a2e; color: #e9edf6; font: 14px ui-monospace, monospace; }
-      #hud { position: fixed; top: 8px; left: 8px; z-index: 10; padding: 8px 12px; background: rgba(0,0,0,0.6); border-radius: 4px; font-family: monospace; font-size: 14px; pointer-events: none; }
-      canvas { display: block; margin: 0 auto; }
-    </style>
-  </head>
-  <body>
-    <div id="game-container"></div>
-    <div id="hud"></div>
-    <script type="module" src="/src/main.ts"></script>
-  </body>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Escape Platform</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #1a1a2e; color: #eee; font-family: 'Courier New', monospace; display: flex; justify-content: center; align-items: center; min-height: 100vh; overflow: hidden; }
+    #game-container { position: relative; }
+    canvas { display: block; border: 4px solid #e94560; border-radius: 4px; box-shadow: 0 0 20px rgba(233, 69, 96, 0.3); image-rendering: pixelated; }
+    #hud { position: absolute; top: 10px; left: 10px; z-index: 10; font-size: 14px; text-shadow: 1px 1px 0 #000; }
+  </style>
+</head>
+<body>
+  <div id="game-container">
+    <div id="hud">LIVES: 3 | SCORE: 0 | LEVEL: 1</div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
 </html>

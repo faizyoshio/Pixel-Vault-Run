@@ -1,46 +1,47 @@
-export const SFX_EVENT = {
-  key: 660,
-  plate: 330,
-  mirror: 520,
-  target: 880,
-  win: 0,
-} as const;
-export type SFX_EVENT = keyof typeof SFX_EVENT;
-
-type CtxFactory = () => AudioContext;
-
-/**
- * Procedural Web Audio SFX. Lazy: creates the AudioContext only on unlock() so
- * the browser's autoplay policy is satisfied by the first user click.
- */
 export class Sfx {
   private ctx: AudioContext | null = null;
-
-  constructor(private factory: CtxFactory = () => new AudioContext()) {}
-
+  private unlockPromise: Promise<void> | null = null;
+  
   unlock(): void {
-    if (!this.ctx) this.ctx = this.factory();
+    if (this.ctx) return;
+    try {
+      const AC = (window as unknown as { AudioContext: typeof AudioContext }).AudioContext;
+      this.ctx = new AC();
+    } catch {
+      this.ctx = null;
+    }
   }
-
-  play(event: SFX_EVENT): void {
-    if (!this.ctx) return; // silent until first user gesture unlocks audio
-    const base = SFX_EVENT[event];
-    const notes = base === 0 ? [523.25, 659.25, 783.99, 1046.5] : [base];
-    notes.forEach((freq, i) => this.note(freq, this.ctx!.currentTime + i * 0.09));
+  
+  private get ready(): boolean {
+    return !!this.ctx && this.ctx.state === 'running';
   }
-
-  private note(freq: number, when: number): void {
+  
+  private playTone(freq: number, duration: number, type: OscillatorType = 'square', volume = 0.15): void {
+    if (!this.ready) return;
     const ctx = this.ctx!;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    osc.frequency.setValueAtTime(freq, when);
-    osc.type = 'square';
-    gain.gain.setValueAtTime(0.0001, when);
-    gain.gain.exponentialRampToValueAtTime(0.12, when + 0.015);
-    gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.3);
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+    gain.gain.setValueAtTime(volume, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
     osc.connect(gain);
     gain.connect(ctx.destination);
-    osc.start(when);
-    osc.stop(when + 0.32);
+    osc.start();
+    osc.stop(ctx.currentTime + duration);
+  }
+  
+  play(name: 'jump' | 'coin' | 'stomp' | 'hurt' | 'win'): void {
+    switch (name) {
+      case 'jump': this.playTone(440, 0.12, 'square', 0.1); break;
+      case 'coin': this.playTone(880, 0.1, 'square', 0.12); break;
+      case 'stomp': this.playTone(220, 0.15, 'sawtooth', 0.12); break;
+      case 'hurt': this.playTone(150, 0.2, 'sawtooth', 0.12); break;
+      case 'win':
+        this.playTone(523, 0.12, 'square', 0.12);
+        setTimeout(() => this.playTone(659, 0.12, 'square', 0.12), 120);
+        setTimeout(() => this.playTone(784, 0.2, 'square', 0.12), 240);
+        break;
+    }
   }
 }
