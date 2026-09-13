@@ -1,39 +1,32 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { EngineCore } from '../../src/engine/core';
-import { GameObject } from '../../src/lib/types';
+import { describe, expect, test } from 'vitest';
+import { GameEngine } from '../../src/engine/engine';
 
-describe('EngineCore', () => {
-  let engine: EngineCore;
-
-  beforeEach(() => {
-    engine = new EngineCore();
+describe('GameEngine', () => {
+  test('initializes with default state', () => {
+    const engine = new GameEngine();
+    expect(engine.lives).toBe(3);
+    expect(engine.score).toBe(0);
+    expect(engine.levelIndex).toBe(0);
+    expect(engine.state).toBe('menu');
   });
 
-  it('initializes in stopped state', () => {
-    expect(engine.isRunning()).toBe(false);
+  test('resets to playing state with fresh stats', () => {
+    const engine = new GameEngine();
+    engine.score = 500;
+    engine.lives = 1;
+    engine.reset();
+    expect(engine.lives).toBe(3);
+    expect(engine.score).toBe(0);
+    expect(engine.state).toBe('playing');
   });
 
-  it('manages game objects lifecycle', () => {
-    const mockUpdate = vi.fn();
-    const mockDispose = vi.fn();
-    const obj: GameObject = {
-      id: 'test-obj',
-      position: { x: 0, y: 0, z: 0 },
-      rotation: { x: 0, y: 0, z: 0 },
-      scale: { x: 1, y: 1, z: 1 },
-      visible: true,
-      update: mockUpdate,
-      dispose: mockDispose,
-    };
-
-    engine.addGameObject(obj);
-    engine.removeGameObject(obj);
-    engine.dispose();
-
-    expect(mockDispose).not.toHaveBeenCalled(); // obj removed before dispose
-
-    engine.addGameObject(obj);
-    engine.dispose();
-    expect(mockDispose).toHaveBeenCalledTimes(1);
+  test('loads level correctly', () => {
+    const engine = new GameEngine();
+    let loadedIndex = -1;
+    engine.onLevelLoad = (idx) => { loadedIndex = idx; };
+    engine.loadLevel(1);
+    expect(engine.levelIndex).toBe(1);
+    expect(engine.state).toBe('playing');
+    expect(loadedIndex).toBe(1);
   });
 });
