@@ -1,5 +1,5 @@
 {
-  "name": "puzzle-game",
+  "name": "pixel-vault-run",
   "version": "1.0.0",
   "description": "2D Mario-style platformer — Canvas 2D, TypeScript",
   "type": "module",
